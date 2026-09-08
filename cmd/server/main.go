@@ -28,10 +28,12 @@ func main(){
 	
 	buffer := make([]byte, 1024)
 
-	n, err := conn.Read(buffer)
-	if (err != nil) {
-		fmt.Println("Error reading message: ", err)
-		return
+	for {
+		n, err := conn.Read(buffer)
+		if (err != nil) {
+			fmt.Println("Error reading message: ", err)
+			return
+		}
+		fmt.Println("Received:", string(buffer[:n]))
 	}
-	fmt.Println("Received:", string(buffer[:n]))
 }
