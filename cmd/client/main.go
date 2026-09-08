@@ -29,7 +29,7 @@ func main(){
 		
 		// .Write - takes slice of bytes and returns length of the bytes and error object if exists
 		// assign returned length of bytes to _(the blank identifier) where it gets thrown away as it is not needed.
-		_, err = conn.Write([]byte(message))
+		_, err := conn.Write([]byte(message))
 		if err != nil {
 			fmt.Println("Error sending messages: ", err)
 			break
