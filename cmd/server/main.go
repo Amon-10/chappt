@@ -16,21 +16,31 @@ func main(){
 	
 	fmt.Println("Server listening on :8080")
 
-	// Accept incoming connections
-	conn, err := listener.Accept()
-	if err != nil {
-		fmt.Println("Error accepting connection: ", err)
-		return
+	// infinite for loop to accept multiple client connections
+	for {
+		// Accept incoming connections
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Println("Error accepting connection: ", err)
+			return
+		}
+
+		go handleConnection(conn)
 	}
+}
+
+// Read byte messages and stringify
+func handleConnection(conn net.Conn){
 	defer conn.Close()
 
 	fmt.Println("Client connected")
 	
 	buffer := make([]byte, 1024)
-
+	
+	// allow multiple messages to be recieved 
 	for {
 		n, err := conn.Read(buffer)
-		if (err != nil) {
+		if err != nil {
 			fmt.Println("Error reading message: ", err)
 			return
 		}
