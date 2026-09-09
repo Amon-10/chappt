@@ -1,11 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 )
 
-func main(){
+func main() {
 	// Start a TCP server on port 8080
 	listener, err := net.Listen("tcp", ":8080")
 	if err != nil {
@@ -13,7 +14,7 @@ func main(){
 		return
 	}
 	defer listener.Close()
-	
+
 	fmt.Println("Server listening on :8080")
 
 	// infinite for loop to accept multiple client connections
@@ -29,21 +30,22 @@ func main(){
 	}
 }
 
-// Read byte messages and stringify
-func handleConnection(conn net.Conn){
+// Read and display messages
+func handleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	fmt.Println("Client connected")
-	
-	buffer := make([]byte, 1024)
-	
-	// allow multiple messages to be recieved 
-	for {
-		n, err := conn.Read(buffer)
-		if err != nil {
-			fmt.Println("Error reading message: ", err)
-			return
-		}
-		fmt.Println("Received:", string(buffer[:n]))
+
+	scanner := bufio.NewScanner(conn)
+
+	// allow multiple messages to be recieved
+	// scanner.Scan waits until "\n"
+	for scanner.Scan() {
+		message := scanner.Text() // gives complete message without trailing \n
+
+		fmt.Println("Received:", message)
+	}
+	if err := scanner.Err(); err != nil {
+		fmt.Println("Error during read", err)
 	}
 }
