@@ -17,10 +17,12 @@ func main() {
 
 	fmt.Println("Server listening on :8080")
 
+	// make channels for join, leave and broadcast
 	join := make(chan net.Conn)
 	leave := make(chan net.Conn)
 	broadcast := make(chan string)
 
+	// pass channels to manager to handle client behaviour
 	go manager(join, leave, broadcast)
 
 	// infinite for loop to accept multiple client connections
@@ -37,8 +39,9 @@ func main() {
 	}
 }
 
-// Read and display messages
+// Read messages from client and forward them to the manager
 func handleConnection(conn net.Conn, leave chan<- net.Conn, broadcast chan<- string) {
+	// notify manager that client left and close connection
 	defer func() {
 		leave <- conn
 		conn.Close()
@@ -48,11 +51,10 @@ func handleConnection(conn net.Conn, leave chan<- net.Conn, broadcast chan<- str
 
 	scanner := bufio.NewScanner(conn)
 
-	// allow multiple messages to be recieved
-	// scanner.Scan waits until "\n"
+	// read new-line delimited messages until he client disconnects
 	for scanner.Scan() {
 		message := scanner.Text() // gives complete message without trailing \n
-		broadcast <- message
+		broadcast <- message // send the message through broadcast channel
 
 		fmt.Println("Received:", message)
 	}
@@ -64,12 +66,12 @@ func handleConnection(conn net.Conn, leave chan<- net.Conn, broadcast chan<- str
 func manager(join <-chan net.Conn, leave <-chan net.Conn, broadcast <-chan string) {
 	for {
 		select {
-		case conn := <-join:
-			fmt.Println("client joined", conn)
-		case conn := <-leave:
-			fmt.Println("client has left", conn)
-		case msg := <-broadcast:
-			fmt.Println("broadcast requested", msg)
+			case conn := <-join:
+				fmt.Println("client joined", conn)
+			case conn := <-leave:
+				fmt.Println("client has left", conn)
+			case msg := <-broadcast:
+				fmt.Println("broadcast requested", msg)
 		}
 	}
 }
