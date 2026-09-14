@@ -17,6 +17,12 @@ func main() {
 
 	fmt.Println("Server listening on :8080")
 
+	join := make(chan net.Conn)
+	leave := make(chan net.Conn)
+	broadcast := make(chan string)
+
+	go manager(join, leave, broadcast)
+
 	// infinite for loop to accept multiple client connections
 	for {
 		// Accept incoming connections
@@ -26,13 +32,17 @@ func main() {
 			return
 		}
 
-		go handleConnection(conn)
+		join <- conn
+		go handleConnection(conn, leave, broadcast)
 	}
 }
 
 // Read and display messages
-func handleConnection(conn net.Conn) {
-	defer conn.Close()
+func handleConnection(conn net.Conn, leave chan<- net.Conn, broadcast chan<- string) {
+	defer func() {
+		leave <- conn
+		conn.Close()
+	}()
 
 	fmt.Println("Client connected")
 
@@ -42,10 +52,24 @@ func handleConnection(conn net.Conn) {
 	// scanner.Scan waits until "\n"
 	for scanner.Scan() {
 		message := scanner.Text() // gives complete message without trailing \n
+		broadcast <- message
 
 		fmt.Println("Received:", message)
 	}
 	if err := scanner.Err(); err != nil {
 		fmt.Println("Error during read", err)
+	}
+}
+
+func manager(join <-chan net.Conn, leave <-chan net.Conn, broadcast <-chan string) {
+	for {
+		select {
+		case conn := <-join:
+			fmt.Println("client joined", conn)
+		case conn := <-leave:
+			fmt.Println("client has left", conn)
+		case msg := <-broadcast:
+			fmt.Println("broadcast requested", msg)
+		}
 	}
 }
