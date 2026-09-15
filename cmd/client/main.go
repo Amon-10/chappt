@@ -18,14 +18,26 @@ func main(){
 
 	fmt.Println("Connected to server")
 
-	// Present incoming broadcast messages
-	// pass conn to incomingMsg
-	go incomingMsg(conn)
-
 	// Initialize new scanner
 	scanner := bufio.NewScanner(os.Stdin)
 
+	// Get username
+	fmt.Println("Enter username: ")
+	if scanner.Scan() {
+		username := scanner.Text() + "\n"
+
+		_, err := conn.Write([]byte(username))
+		if err != nil {
+			fmt.Println("Error when setting username", err)
+			return
+		}
+	}
+
 	fmt.Println("Enter message(Press ctrl+c to exit): ")
+
+	// Present incoming broadcast messages
+	// pass conn to incomingMsg
+	go incomingMsg(conn)
 
 	// Loop and await terminal input
 	for scanner.Scan(){
@@ -53,7 +65,7 @@ func incomingMsg(conn net.Conn) {
 
 	for broadcastScanner.Scan() {
 		broadcastMsg := broadcastScanner.Text()
-		fmt.Printf("Receiving: %v\n", broadcastMsg)
+		fmt.Printf("%v\n", broadcastMsg)
 	}
 	if err := broadcastScanner.Err(); err != nil {
 		fmt.Println("Error during receiving broadcast", err)

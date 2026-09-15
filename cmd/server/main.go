@@ -6,6 +6,15 @@ import (
 	"net"
 )
 
+type Client struct {
+	name string
+	conn net.Conn
+}
+
+type Message struct {
+	sender net.Conn
+	message string
+}
 func main() {
 	// Start a TCP server on port 8080
 	listener, err := net.Listen("tcp", ":8080")
@@ -18,9 +27,9 @@ func main() {
 	fmt.Println("Server listening on :8080")
 
 	// make channels for join, leave and broadcast
-	join := make(chan net.Conn)
+	join := make(chan Client)
 	leave := make(chan net.Conn)
-	broadcast := make(chan string)
+	broadcast := make(chan Message)
 
 	// pass channels to manager to handle client behaviour
 	go manager(join, leave, broadcast)
@@ -34,13 +43,12 @@ func main() {
 			return
 		}
 
-		join <- conn
-		go handleConnection(conn, leave, broadcast)
+		go handleConnection(conn, leave, broadcast, join)
 	}
 }
 
 // Read messages from client and forward them to the manager
-func handleConnection(conn net.Conn, leave chan<- net.Conn, broadcast chan<- string) {
+func handleConnection(conn net.Conn, leave chan<- net.Conn, broadcast chan<- Message, join chan<- Client) {
 	// notify manager that client left and close connection
 	defer func() {
 		leave <- conn
@@ -51,37 +59,44 @@ func handleConnection(conn net.Conn, leave chan<- net.Conn, broadcast chan<- str
 
 	scanner := bufio.NewScanner(conn)
 
+	if scanner.Scan() {
+		username := scanner.Text()
+		join <- Client{name: username, conn: conn}
+	}
+
 	// read new-line delimited messages until the client disconnects
 	for scanner.Scan() {
 		message := scanner.Text() // gives complete message without trailing \n
-		broadcast <- message // send the message through broadcast channel
+		broadcast <- Message{sender: conn, message: message} // send the message through broadcast channel
 
-		fmt.Println("Received:", message)
 	}
 	if err := scanner.Err(); err != nil {
 		fmt.Println("Error during read", err)
 	}
 }
 
-func manager(join <-chan net.Conn, leave <-chan net.Conn, broadcast <-chan string) {
-	clients := make(map[net.Conn]bool) 
+func manager(join <-chan Client, leave <-chan net.Conn, broadcast <-chan Message) {
+	clients := make(map[net.Conn]Client) 
 	for {
 		select {
-			case conn := <-join:
-				clients[conn] = true
-				fmt.Println("client joined", conn)
+			case client := <-join:
+				clients[client.conn] = client
+				fmt.Printf("%v has joined\n", client.name)
 			
 			case conn := <-leave:
 				delete(clients, conn)
 				fmt.Println("client has left", conn)
 			
 			case msg := <-broadcast:
-				fmt.Println("broadcast requested", msg)
+				client := clients[msg.sender]
+				fmt.Printf("%v: %v\n", client.name, msg.message)
 				
-				for client := range clients {
-					_, err := client.Write([]byte(msg + "\n"))
-					if err != nil {
-						fmt.Println("Error during broadcasting to client", err)
+				for conn := range clients {
+					if msg.sender != conn {
+						_, err := conn.Write([]byte(client.name + ": " + msg.message + "\n"))
+						if err != nil {
+							fmt.Println("Error during broadcasting to client", err)
+						}
 					}
 				}
 		}
