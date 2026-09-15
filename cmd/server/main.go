@@ -51,7 +51,7 @@ func handleConnection(conn net.Conn, leave chan<- net.Conn, broadcast chan<- str
 
 	scanner := bufio.NewScanner(conn)
 
-	// read new-line delimited messages until he client disconnects
+	// read new-line delimited messages until the client disconnects
 	for scanner.Scan() {
 		message := scanner.Text() // gives complete message without trailing \n
 		broadcast <- message // send the message through broadcast channel
@@ -64,14 +64,26 @@ func handleConnection(conn net.Conn, leave chan<- net.Conn, broadcast chan<- str
 }
 
 func manager(join <-chan net.Conn, leave <-chan net.Conn, broadcast <-chan string) {
+	clients := make(map[net.Conn]bool) 
 	for {
 		select {
 			case conn := <-join:
+				clients[conn] = true
 				fmt.Println("client joined", conn)
+			
 			case conn := <-leave:
+				delete(clients, conn)
 				fmt.Println("client has left", conn)
+			
 			case msg := <-broadcast:
 				fmt.Println("broadcast requested", msg)
+				
+				for client := range clients {
+					_, err := client.Write([]byte(msg + "\n"))
+					if err != nil {
+						fmt.Println("Error during broadcasting to client", err)
+					}
+				}
 		}
 	}
 }

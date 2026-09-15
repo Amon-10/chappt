@@ -18,6 +18,10 @@ func main(){
 
 	fmt.Println("Connected to server")
 
+	// Present incoming broadcast messages
+	// pass conn to incomingMsg
+	go incomingMsg(conn)
+
 	// Initialize new scanner
 	scanner := bufio.NewScanner(os.Stdin)
 
@@ -41,4 +45,17 @@ func main(){
 		fmt.Fprintln(os.Stderr, "Error reading standard input: ", err)
 	}
 	
+}
+
+// read incoming broadcast messages and print to terminal
+func incomingMsg(conn net.Conn) {
+	broadcastScanner := bufio.NewScanner(conn)
+
+	for broadcastScanner.Scan() {
+		broadcastMsg := broadcastScanner.Text()
+		fmt.Printf("Receiving: %v\n", broadcastMsg)
+	}
+	if err := broadcastScanner.Err(); err != nil {
+		fmt.Println("Error during receiving broadcast", err)
+	}
 }
