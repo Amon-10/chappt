@@ -80,22 +80,32 @@ func manager(join <-chan Client, leave <-chan net.Conn, broadcast <-chan Message
 	for {
 		select {
 			case client := <-join:
+				// add client struct to clients map with conn as key
 				clients[client.conn] = client
 				fmt.Printf("%v has joined\n", client.name)
 
 				clientName := client.name
 				for conn := range clients {
 					if conn != client.conn {
-						_, err := conn.Write([]byte("#" + clientName + " has joined the chat\n"))
+						_, err := conn.Write([]byte("# " + clientName + " has joined the chat\n"))
 						if err != nil {
-							fmt.Println("Error during broadcasting client joined message", err)
+							fmt.Println("Error during broadcasting join notification", err)
 						}
 					}
 				}
 			
-			case conn := <-leave:
-				delete(clients, conn)
-				fmt.Println("client has left", conn)
+			case leaveConn := <-leave:
+				clientName := clients[leaveConn].name
+				delete(clients, leaveConn)
+				
+				fmt.Println("client has left", leaveConn)
+
+				for clientConn := range clients {
+					_, err := clientConn.Write([]byte("# " + clientName + " has left the chat\n"))
+					if err != nil {
+						fmt.Println("Error during broadcasting leave notification")
+					}
+				}
 			
 			case msg := <-broadcast:
 				client := clients[msg.sender]
