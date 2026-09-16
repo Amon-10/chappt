@@ -1,5 +1,7 @@
 # Chappt
 
+[![CI](https://github.com/Amon-10/chappt/actions/workflows/ci.yml/badge.svg)](https://github.com/Amon-10/chappt/actions/workflows/ci.yml)
+
 Chappt is a small, concurrent terminal chat application written in Go. A TCP
 server owns the active-user list and broadcasts newline-delimited messages to
 connected terminal clients.
@@ -59,6 +61,24 @@ The image uses a multi-stage build. The final image contains only the statically
 linked server binary, runs as a non-root numeric user, and listens on port 8080
 by default. Server flags can be appended to the `docker run` command. For
 example, `chappt-server -reject-empty=false` allows empty messages.
+
+### Deployment considerations
+
+Chappt uses long-lived raw TCP connections, so the host must expose a TCP port
+rather than an HTTP-only service. Deploy one server instance for this version:
+the connected-client and username maps live in memory and are intentionally not
+shared between processes. A restart disconnects active clients, which can then
+reconnect normally.
+
+After deployment, connect the terminal client to the host and published port:
+
+```sh
+go run ./cmd/client -addr chat.example.com:8080
+```
+
+The deployment target should provide a TCP health check and keep the container
+running while clients are connected. Transport encryption is not included in
+V1, so the current image is best suited to a controlled demo environment.
 
 ### Configuration
 
@@ -123,13 +143,50 @@ client to submit another username.
 
 ## Architecture
 
-- `cmd/server` accepts connections and routes join, leave, and message events
-  through one manager goroutine. That goroutine exclusively owns the client and
-  username maps, making duplicate checks and name reservations atomic.
-- `cmd/client` handles registration synchronously, then receives broadcasts in
-  a goroutine while the main goroutine reads terminal input.
-- `internal/protocol` contains response and system-message markers shared by
-  both commands.
+```text
+terminal input
+    │
+    ▼
+client main goroutine ──TCP line──▶ server connection goroutine
+                                      │
+                                      ▼
+                               broadcast channel
+                                      │
+                                      ▼
+                               manager goroutine
+                                      │
+                       TCP lines to other connections
+                                      │
+                                      ▼
+                           client receive goroutines
+                                      │
+                                      ▼
+                               terminal output
+```
+
+- `cmd/server` accepts connections and starts one handler goroutine for each
+  client. Handlers turn network activity into join, leave, and message events.
+- The server starts one manager goroutine. It exclusively owns the connection
+  and username maps, so duplicate checks and membership changes do not require
+  mutexes.
+- `cmd/client` registers synchronously. It then reads terminal input in the main
+  goroutine and receives server messages in one additional goroutine.
+- `internal/protocol` contains the small set of response and system-message
+  markers shared by both commands.
+
+### Design decisions
+
+- **Newline framing:** `bufio.Scanner` reads one complete frame at a time, and
+  `fmt.Fprintln` terminates every outgoing frame with a newline.
+- **One goroutine per connection:** each server handler can block on its own TCP
+  read without preventing other clients from sending messages.
+- **Channel-owned state:** handlers communicate through `join`, `leave`, and
+  `broadcast` channels. Only the manager accesses the maps of active clients
+  and normalized usernames.
+- **Server-authoritative validation:** the client provides immediate feedback,
+  but the server makes the final decision about usernames and empty messages.
+- **Small shared protocol package:** shared markers prevent the two executable
+  commands from drifting without introducing a larger protocol abstraction.
 
 ## Tests
 
@@ -144,6 +201,9 @@ Run the suite with the race detector:
 ```sh
 go test -race ./...
 ```
+
+GitHub Actions runs `gofmt`, `go vet`, the normal test suite, and the
+race-detector suite on every push and pull request.
 
 The integration suite starts the server on an available local TCP port. It
 checks server-side empty-name validation, case-insensitive duplicate handling,
