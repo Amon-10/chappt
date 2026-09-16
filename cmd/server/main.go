@@ -15,37 +15,6 @@ type Message struct {
 	sender net.Conn
 	message string
 }
-func main() {
-	// Start a TCP server on port 8080
-	listener, err := net.Listen("tcp", ":8080")
-	if err != nil {
-		fmt.Println("Error starting server: ", err)
-		return
-	}
-	defer listener.Close()
-
-	fmt.Println("Server listening on :8080")
-
-	// make channels for join, leave and broadcast
-	join := make(chan Client)
-	leave := make(chan net.Conn)
-	broadcast := make(chan Message)
-
-	// pass channels to manager to handle client behaviour
-	go manager(join, leave, broadcast)
-
-	// infinite for loop to accept multiple client connections
-	for {
-		// Accept incoming connections
-		conn, err := listener.Accept()
-		if err != nil {
-			fmt.Println("Error accepting connection: ", err)
-			return
-		}
-
-		go handleConnection(conn, leave, broadcast, join)
-	}
-}
 
 // Read messages from client and forward them to the manager
 func handleConnection(conn net.Conn, leave chan<- net.Conn, broadcast chan<- Message, join chan<- Client) {
@@ -122,3 +91,38 @@ func manager(join <-chan Client, leave <-chan net.Conn, broadcast <-chan Message
 		}
 	}
 }
+
+func main() {
+	// Start a TCP server on port 8080
+	listener, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		fmt.Println("Error starting server: ", err)
+		return
+	}
+	defer listener.Close()
+
+	fmt.Println("Server listening on :8080")
+
+	// make channels for join, leave and broadcast
+	join := make(chan Client)
+	leave := make(chan net.Conn)
+	broadcast := make(chan Message)
+
+	// pass channels to manager to handle client behaviour
+	go manager(join, leave, broadcast)
+
+	// infinite for loop to accept multiple client connections
+	for {
+		// Accept incoming connections
+		conn, err := listener.Accept()
+		if err != nil {
+			fmt.Println("Error accepting connection: ", err)
+			return
+		}
+
+		go handleConnection(conn, leave, broadcast, join)
+	}
+}
+
+
+
