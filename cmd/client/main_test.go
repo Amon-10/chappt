@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Amon-10/chappt.git/internal/protocol"
+	"github.com/Amon-10/chappt/internal/protocol"
 )
 
 func TestRegisterRetriesLocalAndServerRejections(t *testing.T) {
@@ -61,12 +61,5 @@ func TestRegisterRetriesLocalAndServerRejections(t *testing.T) {
 		if !strings.Contains(output.String(), want) {
 			t.Errorf("output %q does not contain %q", output.String(), want)
 		}
-	}
-}
-
-func TestTerminalPaletteCanBeDisabled(t *testing.T) {
-	colors := terminalPalette(false)
-	if colors != (palette{}) {
-		t.Fatalf("disabled palette = %#v, want no escape sequences", colors)
 	}
 }

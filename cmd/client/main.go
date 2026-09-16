@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Amon-10/chappt.git/internal/protocol"
+	"github.com/Amon-10/chappt/internal/protocol"
 )
 
 // palette stores terminal escape sequences. They are empty when color output

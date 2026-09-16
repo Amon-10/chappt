@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Amon-10/chappt.git/internal/protocol"
+	"github.com/Amon-10/chappt/internal/protocol"
 )
 
 const testTimeout = 2 * time.Second
@@ -30,10 +30,7 @@ func startTestServer(t *testing.T, rejectEmpty bool) (string, func()) {
 		t.Fatalf("listen: %v", err)
 	}
 
-	server := newChatServer(
-		serverConfig{rejectEmpty: rejectEmpty},
-		log.New(io.Discard, "", 0),
-	)
+	server := newChatServer(rejectEmpty, log.New(io.Discard, "", 0))
 	done := make(chan error, 1)
 	go func() {
 		done <- server.serve(listener)
@@ -174,7 +171,7 @@ func TestEmptyMessagePolicy(t *testing.T) {
 	})
 }
 
-func TestThreeClientStressJoinsLeavesMessagesAndReconnects(t *testing.T) {
+func TestThreeClientMessagingAndReconnects(t *testing.T) {
 	address, stop := startTestServer(t, true)
 	defer stop()
 

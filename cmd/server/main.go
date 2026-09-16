@@ -11,14 +11,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Amon-10/chappt.git/internal/protocol"
+	"github.com/Amon-10/chappt/internal/protocol"
 )
-
-// client represents a registered connection and its display name.
-type client struct {
-	name string
-	conn net.Conn
-}
 
 // message is a chat message waiting to be broadcast.
 type message struct {
@@ -29,36 +23,32 @@ type message struct {
 // joinRequest lets the manager atomically reserve a username and report the
 // result to the connection handler.
 type joinRequest struct {
-	client client
+	name   string
+	conn   net.Conn
 	result chan error
-}
-
-// serverConfig contains behavior that can be selected at startup.
-type serverConfig struct {
-	rejectEmpty bool
 }
 
 // chatServer owns the channels used to serialize membership and broadcasts.
 // Keeping all client-map access in manager avoids locking around joins,
 // disconnects, and duplicate-name checks.
 type chatServer struct {
-	config    serverConfig
-	logger    *log.Logger
-	join      chan joinRequest
-	leave     chan net.Conn
-	broadcast chan message
-	done      chan struct{}
+	rejectEmpty bool
+	logger      *log.Logger
+	join        chan joinRequest
+	leave       chan net.Conn
+	broadcast   chan message
+	done        chan struct{}
 }
 
 // newChatServer creates a server with an isolated event manager.
-func newChatServer(config serverConfig, logger *log.Logger) *chatServer {
+func newChatServer(rejectEmpty bool, logger *log.Logger) *chatServer {
 	return &chatServer{
-		config:    config,
-		logger:    logger,
-		join:      make(chan joinRequest),
-		leave:     make(chan net.Conn),
-		broadcast: make(chan message),
-		done:      make(chan struct{}),
+		rejectEmpty: rejectEmpty,
+		logger:      logger,
+		join:        make(chan joinRequest),
+		leave:       make(chan net.Conn),
+		broadcast:   make(chan message),
+		done:        make(chan struct{}),
 	}
 }
 
@@ -75,7 +65,8 @@ func (s *chatServer) handleConnection(conn net.Conn) {
 	for !registered && scanner.Scan() {
 		name := strings.TrimSpace(scanner.Text())
 		request := joinRequest{
-			client: client{name: name, conn: conn},
+			name:   name,
+			conn:   conn,
 			result: make(chan error, 1),
 		}
 
@@ -129,21 +120,22 @@ func (s *chatServer) handleConnection(conn net.Conn) {
 // events. Usernames are compared case-insensitively while preserving the
 // spelling chosen by the user for display.
 func (s *chatServer) manager() {
-	clients := make(map[net.Conn]client)
+	clients := make(map[net.Conn]string)
 	names := make(map[string]struct{})
 
 	for {
 		select {
 		case request := <-s.join:
-			nameKey := strings.ToLower(request.client.name)
+			nameKey := strings.ToLower(request.name)
+			_, nameTaken := names[nameKey]
 			var err error
 			switch {
-			case request.client.name == "":
+			case request.name == "":
 				err = errors.New("username cannot be empty")
-			case hasName(names, nameKey):
+			case nameTaken:
 				err = errors.New("username is already in use")
 			default:
-				clients[request.client.conn] = request.client
+				clients[request.conn] = request.name
 				names[nameKey] = struct{}{}
 			}
 
@@ -152,8 +144,8 @@ func (s *chatServer) manager() {
 				continue
 			}
 
-			s.logger.Printf("%s joined", request.client.name)
-			broadcastSystem(clients, request.client.conn, request.client.name+" has joined the chat", s.logger)
+			s.logger.Printf("%s joined", request.name)
+			broadcastSystem(clients, request.conn, request.name+" has joined the chat", s.logger)
 
 		case conn := <-s.leave:
 			departing, ok := clients[conn]
@@ -162,9 +154,9 @@ func (s *chatServer) manager() {
 			}
 
 			delete(clients, conn)
-			delete(names, strings.ToLower(departing.name))
-			s.logger.Printf("%s left", departing.name)
-			broadcastSystem(clients, nil, departing.name+" has left the chat", s.logger)
+			delete(names, strings.ToLower(departing))
+			s.logger.Printf("%s left", departing)
+			broadcastSystem(clients, nil, departing+" has left the chat", s.logger)
 
 		case msg := <-s.broadcast:
 			sender, ok := clients[msg.sender]
@@ -172,15 +164,15 @@ func (s *chatServer) manager() {
 				continue
 			}
 
-			if s.config.rejectEmpty && strings.TrimSpace(msg.content) == "" {
+			if s.rejectEmpty && strings.TrimSpace(msg.content) == "" {
 				writeLine(msg.sender, protocol.SystemPrefix+"Empty messages are not allowed", s.logger)
 				continue
 			}
 
-			s.logger.Printf("%s: %s", sender.name, msg.content)
+			s.logger.Printf("%s: %s", sender, msg.content)
 			for conn := range clients {
 				if conn != msg.sender {
-					writeLine(conn, sender.name+": "+msg.content, s.logger)
+					writeLine(conn, sender+": "+msg.content, s.logger)
 				}
 			}
 
@@ -208,15 +200,9 @@ func (s *chatServer) serve(listener net.Listener) error {
 	}
 }
 
-// hasName reports whether the normalized username is already reserved.
-func hasName(names map[string]struct{}, name string) bool {
-	_, exists := names[name]
-	return exists
-}
-
 // broadcastSystem sends a status message to every client except exclude.
 // Passing nil sends the message to every connected client.
-func broadcastSystem(clients map[net.Conn]client, exclude net.Conn, content string, logger *log.Logger) {
+func broadcastSystem(clients map[net.Conn]string, exclude net.Conn, content string, logger *log.Logger) {
 	for conn := range clients {
 		if conn != exclude {
 			writeLine(conn, protocol.SystemPrefix+content, logger)
@@ -246,7 +232,7 @@ func main() {
 	defer listener.Close()
 
 	logger.Printf("listening on %s (reject-empty=%t)", listener.Addr(), *rejectEmpty)
-	server := newChatServer(serverConfig{rejectEmpty: *rejectEmpty}, logger)
+	server := newChatServer(*rejectEmpty, logger)
 	if err := server.serve(listener); err != nil {
 		logger.Printf("server stopped: %v", err)
 	}
