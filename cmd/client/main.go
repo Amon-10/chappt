@@ -1,73 +1,162 @@
+// Command client runs the interactive Chappt terminal client.
 package main
 
 import (
 	"bufio"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"strings"
+
+	"github.com/Amon-10/chappt.git/internal/protocol"
 )
 
-// read incoming broadcast messages and print to terminal
-func incomingMsg(conn net.Conn) {
-	broadcastScanner := bufio.NewScanner(conn)
+// palette stores terminal escape sequences. They are empty when color output
+// is disabled, which keeps redirected output and NO_COLOR environments clean.
+type palette struct {
+	accent string
+	dim    string
+	green  string
+	yellow string
+	reset  string
+}
 
-	for broadcastScanner.Scan() {
-		broadcastMsg := broadcastScanner.Text()
-		fmt.Printf("%v\n", broadcastMsg)
+// terminalPalette chooses a restrained color scheme for interactive output.
+func terminalPalette(enabled bool) palette {
+	if !enabled {
+		return palette{}
 	}
-	if err := broadcastScanner.Err(); err != nil {
-		fmt.Println("Error during receiving broadcast", err)
+	return palette{
+		accent: "\033[1;36m",
+		dim:    "\033[2m",
+		green:  "\033[32m",
+		yellow: "\033[33m",
+		reset:  "\033[0m",
 	}
 }
 
-func main(){
-	// Initiate connection to listening tcp server
-	conn, err := net.Dial("tcp", "localhost:8080")
-	if (err != nil) {
-		fmt.Println("Error connecting to server: ", err)
+// useColor reports whether stdout is an interactive terminal and color has
+// not been disabled by flag or by the NO_COLOR convention.
+func useColor(disabled bool) bool {
+	if disabled || os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	info, err := os.Stdout.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// printBanner displays a compact connection header.
+func printBanner(out io.Writer, colors palette, address string) {
+	fmt.Fprintf(out, "%s┌──────────────────────────────┐%s\n", colors.accent, colors.reset)
+	fmt.Fprintf(out, "%s│            CHAPPT            │%s\n", colors.accent, colors.reset)
+	fmt.Fprintf(out, "%s└──────────────────────────────┘%s\n", colors.accent, colors.reset)
+	fmt.Fprintf(out, "%sConnected to %s%s\n\n", colors.green, address, colors.reset)
+}
+
+// register prompts until the server accepts a non-empty, unique username.
+// The server response makes duplicate-name handling explicit and lets the user
+// retry without opening a new TCP connection.
+func register(conn net.Conn, input *bufio.Scanner, server *bufio.Reader, out io.Writer, colors palette) error {
+	for {
+		fmt.Fprintf(out, "%sUsername%s: ", colors.accent, colors.reset)
+		if !input.Scan() {
+			if err := input.Err(); err != nil {
+				return fmt.Errorf("read username: %w", err)
+			}
+			return io.EOF
+		}
+
+		username := strings.TrimSpace(input.Text())
+		if username == "" {
+			fmt.Fprintf(out, "%sUsername cannot be empty.%s\n", colors.yellow, colors.reset)
+			continue
+		}
+
+		if _, err := fmt.Fprintln(conn, username); err != nil {
+			return fmt.Errorf("send username: %w", err)
+		}
+
+		response, err := server.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("read registration response: %w", err)
+		}
+		response = strings.TrimSpace(response)
+
+		switch {
+		case response == protocol.Welcome:
+			return nil
+		case strings.HasPrefix(response, protocol.ErrorPrefix):
+			fmt.Fprintf(out, "%s%s%s\n", colors.yellow, strings.TrimPrefix(response, protocol.ErrorPrefix), colors.reset)
+		default:
+			return fmt.Errorf("unexpected registration response %q", response)
+		}
+	}
+}
+
+// receive prints newline-delimited server messages until the connection ends.
+func receive(server *bufio.Reader, out io.Writer, colors palette) error {
+	for {
+		line, err := server.ReadString('\n')
+		if line != "" {
+			line = strings.TrimSuffix(line, "\n")
+			if strings.HasPrefix(line, protocol.SystemPrefix) {
+				fmt.Fprintf(out, "\r%s%s%s\n> ", colors.dim, line, colors.reset)
+			} else {
+				fmt.Fprintf(out, "\r%s\n> ", line)
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			return fmt.Errorf("receive message: %w", err)
+		}
+	}
+}
+
+func main() {
+	address := flag.String("addr", "localhost:8080", "chat server address")
+	noColor := flag.Bool("no-color", false, "disable ANSI colors")
+	flag.Parse()
+
+	conn, err := net.Dial("tcp", *address)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Unable to connect to %s: %v\n", *address, err)
 		return
 	}
-	defer conn.Close() // defer - run when surrounding function returns
+	defer conn.Close()
 
-	fmt.Println("Connected to server")
+	colors := terminalPalette(useColor(*noColor))
+	printBanner(os.Stdout, colors, *address)
 
-	// Initialize new scanner
-	scanner := bufio.NewScanner(os.Stdin)
+	input := bufio.NewScanner(os.Stdin)
+	server := bufio.NewReader(conn)
+	if err := register(conn, input, server, os.Stdout, colors); err != nil {
+		if !errors.Is(err, io.EOF) {
+			fmt.Fprintf(os.Stderr, "Registration failed: %v\n", err)
+		}
+		return
+	}
 
-	// Get username
-	fmt.Println("Enter username: ")
-	if scanner.Scan() {
-		username := scanner.Text() + "\n"
+	fmt.Fprintf(os.Stdout, "\n%sType a message and press Enter. Press Ctrl+D to leave.%s\n> ", colors.dim, colors.reset)
+	go func() {
+		if err := receive(server, os.Stdout, colors); err != nil {
+			fmt.Fprintf(os.Stderr, "\nConnection ended: %v\n", err)
+		}
+	}()
 
-		_, err := conn.Write([]byte(username))
-		if err != nil {
-			fmt.Println("Error when setting username", err)
+	for input.Scan() {
+		if _, err := fmt.Fprintln(conn, input.Text()); err != nil {
+			fmt.Fprintf(os.Stderr, "\nUnable to send message: %v\n", err)
 			return
 		}
+		fmt.Fprint(os.Stdout, "> ")
 	}
 
-	fmt.Println("Enter message(Press ctrl+c to exit): ")
-
-	// Present incoming broadcast messages
-	// pass conn to incomingMsg
-	go incomingMsg(conn)
-
-	// Loop and await terminal input
-	for scanner.Scan(){
-		message := scanner.Text() + "\n"
-		
-		// .Write - takes slice of bytes and returns length of the bytes and error object if exists
-		// assign returned length of bytes to _(the blank identifier) where it gets thrown away as it is not needed.
-		_, err := conn.Write([]byte(message))
-		if err != nil {
-			fmt.Println("Error sending messages: ", err)
-			break
-		}
+	if err := input.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "\nUnable to read input: %v\n", err)
 	}
-
-	// Check for any terminal scanning errors
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error reading standard input: ", err)
-	}
-	
 }
