@@ -20,8 +20,8 @@ type Message struct {
 func handleConnection(conn net.Conn, leave chan<- net.Conn, broadcast chan<- Message, join chan<- Client) {
 	// notify manager that client left and close connection
 	defer func() {
-		leave <- conn
 		conn.Close()
+		leave <- conn
 	}()
 
 	fmt.Println("Client connected")
