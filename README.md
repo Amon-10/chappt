@@ -35,6 +35,31 @@ go run ./cmd/client
 The default server listens on `:8080`, and the client connects to
 `localhost:8080`. Use `Ctrl+D` to leave a client cleanly.
 
+## Run the server with Docker
+
+Build the server image from the repository root:
+
+```sh
+docker build -t chappt-server .
+```
+
+Run the container and publish its TCP port:
+
+```sh
+docker run --rm --name chappt-server -p 8080:8080 chappt-server
+```
+
+The terminal client continues to run on the host:
+
+```sh
+go run ./cmd/client -addr localhost:8080
+```
+
+The image uses a multi-stage build. The final image contains only the statically
+linked server binary, runs as a non-root numeric user, and listens on port 8080
+by default. Server flags can be appended to the `docker run` command. For
+example, `chappt-server -reject-empty=false` allows empty messages.
+
 ### Configuration
 
 Server flags:
@@ -122,5 +147,5 @@ go test -race ./...
 
 The integration suite starts the server on an available local TCP port. It
 checks server-side empty-name validation, case-insensitive duplicate handling,
-retrying on the same connection, both empty-message modes, and a three-client
-stress scenario with repeated messages and reconnect cycles.
+retrying on the same connection, both empty-message modes, and a repeated
+three-client scenario with messages and reconnect cycles.
