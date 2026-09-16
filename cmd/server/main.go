@@ -82,6 +82,16 @@ func manager(join <-chan Client, leave <-chan net.Conn, broadcast <-chan Message
 			case client := <-join:
 				clients[client.conn] = client
 				fmt.Printf("%v has joined\n", client.name)
+
+				clientName := client.name
+				for conn := range clients {
+					if conn != client.conn {
+						_, err := conn.Write([]byte("#" + clientName + " has joined the chat\n"))
+						if err != nil {
+							fmt.Println("Error during broadcasting client joined message", err)
+						}
+					}
+				}
 			
 			case conn := <-leave:
 				delete(clients, conn)
